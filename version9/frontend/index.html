@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Priority-Based Flight Route Optimizer</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Flight Route Optimizer ✈️</h1>
+
+    <div class="input-section">
+      <input type="text" id="city-input" placeholder="Enter City" />
+      <select id="priority-select">
+        <option value="1">Priority 1 (Highest)</option>
+        <option value="2">Priority 2</option>
+        <option value="3">Priority 3</option>
+      </select>
+      <button onclick="addCity()">Add City</button>
+    </div>
+
+    <!-- Starting city selector -->
+    <div class="input-section">
+      <label for="starting-city-select">Select Starting City:</label>
+      <select id="starting-city-select">
+        <option value="">--None--</option>
+      </select>
+    </div>
+
+    <ul id="city-list"></ul>
+
+    <div class="algo-section">
+      <label>Select Algorithm:</label>
+      <select id="algorithm-select">
+        <option value="brute">Brute Force</option>
+        <option value="dp">Dynamic Programming</option>
+        <option value="greedy">Greedy (Nearest Neighbour)</option>
+      </select>
+      <button onclick="findRoute()">Find Optimal Route</button>
+      <button onclick="compareAll()">Compare All Algorithms</button>
+      <!-- Reset button clears the list, map markers, routes, and stats -->
+      <button onclick="resetAll()">Reset</button>
+    </div>
+
+    <div id="results">
+      <h2>Route Result</h2>
+      <p id="route-output"></p>
+      <div id="stats">
+        <h3>Statistics</h3>
+        <p id="stats-output"></p>
+      </div>
+    </div>
+
+    <div id="comparison">
+      <h2>Comparison</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Algorithm</th>
+            <th>Route</th>
+            <th>Total Distance</th>
+            <th>Time Taken (ms)</th>
+          </tr>
+        </thead>
+        <tbody id="comparison-table"></tbody>
+      </table>
+    </div>
+
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
