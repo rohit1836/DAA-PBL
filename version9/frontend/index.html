@@ -17,8 +17,10 @@
         <option value="1">Priority 1 (Highest)</option>
         <option value="2">Priority 2</option>
         <option value="3">Priority 3</option>
+        <option value="4">Priority 4</option>
+        <option value="5">Priority 5 (Lowest)</option>
       </select>
-      <button onclick="addCity()">Add City</button>
+      <button id="add-city-btn">Add City</button>
     </div>
 
     <!-- Starting city selector -->
@@ -38,10 +40,9 @@
         <option value="dp">Dynamic Programming</option>
         <option value="greedy">Greedy (Nearest Neighbour)</option>
       </select>
-      <button onclick="findRoute()">Find Optimal Route</button>
-      <button onclick="compareAll()">Compare All Algorithms</button>
-      <!-- Reset button clears the list, map markers, routes, and stats -->
-      <button onclick="resetAll()">Reset</button>
+      <button id="find-route-btn">Find Optimal Route</button>
+      <button id="compare-btn">Compare All Algorithms</button>
+      <button id="reset-btn">Reset</button>
     </div>
 
     <div id="results">
@@ -53,7 +54,7 @@
       </div>
     </div>
 
-    <div id="comparison">
+    <div id="comparison-section">
       <h2>Comparison</h2>
       <table>
         <thead>
@@ -62,6 +63,7 @@
             <th>Route</th>
             <th>Total Distance</th>
             <th>Time Taken (ms)</th>
+            <th>Time Complexity</th>
           </tr>
         </thead>
         <tbody id="comparison-table"></tbody>

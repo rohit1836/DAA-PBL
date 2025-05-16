@@ -1,8 +1,18 @@
 let cities = [];
 let nextCityId = 0;
-let map, markers = [], routeLine;
+let map, markers = [], routeLine, distanceLabels = [];
 
-// Define default (blue) and starting (red) marker icons.
+// Use relative path for API endpoints since we're serving from the same server
+const API_URL = '/api';
+
+// Time complexity mapping
+const timeComplexity = {
+  'brute': 'O(n!)',
+  'dp': 'O(n²2ⁿ)',
+  'greedy': 'O(n²)'
+};
+
+// Define default (blue), starting (red), and current (green) marker icons
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
@@ -11,6 +21,7 @@ const defaultIcon = L.icon({
   popupAnchor: [1, -34],
   shadowSize: [41, 41]
 });
+
 const startingIcon = L.icon({
   iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
@@ -20,19 +31,46 @@ const startingIcon = L.icon({
   shadowSize: [41, 41]
 });
 
-window.onload = () => {
+// Initialize everything when the DOM is ready
+document.addEventListener('DOMContentLoaded', function () {
+  // Initialize map
   map = L.map('map').setView([20.5937, 78.9629], 5);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  let osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-  }).addTo(map);
+  });
 
-  // Trigger "Add City" on Enter key press in the city input field.
-  document.getElementById('city-input').addEventListener('keyup', function(event) {
-    if (event.key === 'Enter') {
-      addCity();
+  let googleStreets = L.tileLayer('http://{s}.google.com/vt?lyrs=m&x={x}&y={y}&z={z}', {
+    maxZoom: 20,
+    subdomains: ['mt0', 'mt1', 'mt2', 'mt3']
+  });
+  googleStreets.addTo(map);
+
+  let baseMaps = {
+    "OpenStreetMap": osm,
+    "Google Streets": googleStreets
+  };
+
+  let overlayMaps = {
+  };
+
+  L.control.layers(baseMaps, overlayMaps).addTo(map);
+
+  // Set up event listeners
+  document.getElementById('add-city-btn').addEventListener('click', addCity);
+  document.getElementById('city-input').addEventListener('keyup', function (event) {
+    if (event.key === 'Enter') addCity();
+  });
+  document.getElementById('starting-city-select').addEventListener('change', startingCityChanged);
+  document.getElementById('algorithm-select').addEventListener('change', function () {
+    if (cities.length >= 2) {
+      findRoute();
+      compareAll();
     }
   });
-};
+  document.getElementById('find-route-btn').addEventListener('click', findRoute);
+  document.getElementById('compare-btn').addEventListener('click', compareAll);
+  document.getElementById('reset-btn').addEventListener('click', resetAll);
+});
 
 function addCity() {
   const cityInput = document.getElementById('city-input');
@@ -41,26 +79,62 @@ function addCity() {
   
   if (!cityName) return;
 
-  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${cityName}`)
-    .then(res => res.json())
-    .then(data => {
-      if (data.length > 0) {
-        const { lat, lon, display_name } = data[0];
-        // Assign a unique id for each city.
-        cities.push({
-          id: nextCityId++,
-          name: display_name,
-          lat: parseFloat(lat),
-          lon: parseFloat(lon),
-          priority: priority
-        });
-        cityInput.value = '';
-        updateCityList();
-        drawMarkers();
-      } else {
-        alert('City not found.');
+  // Add proper headers and parameters for Nominatim
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1&addressdetails=1`, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json',
+      'User-Agent': 'Priority-Based Flight Route Optimizer (Educational Project)',
+      'Referrer-Policy': 'no-referrer-when-downgrade'
+    }
+  })
+  .then(res => {
+    if (!res.ok) {
+      console.error('Response not OK:', res.status, res.statusText);
+      throw new Error(`HTTP error! status: ${res.status}`);
+    }
+    return res.json();
+  })
+  .then(data => {
+    if (data && data.length > 0) {
+      const { lat, lon, display_name } = data[0];
+      
+      // Parse coordinates as floats
+      const latitude = parseFloat(lat);
+      const longitude = parseFloat(lon);
+      
+      // Validate coordinates
+      if (isNaN(latitude) || isNaN(longitude)) {
+        throw new Error('Invalid coordinates received');
       }
-    });
+      
+      cities.push({
+        id: nextCityId++,
+        name: display_name,
+        lat: latitude,
+        lon: longitude,
+        priority: priority
+      });
+      
+      cityInput.value = '';
+      updateCityList();
+      drawMarkers();
+      
+      // Zoom to the newly added city
+      map.setView([latitude, longitude], 5);
+      
+      if (cities.length >= 2) {
+        findRoute();
+        compareAll();
+      }
+    } else {
+      alert('City not found. Please try a different city name.');
+    }
+  })
+  .catch(error => {
+    console.error('Error details:', error);
+    alert('Error finding city. Please try a different city name or try again in a few seconds.');
+  });
 }
 
 function updateCityList() {
@@ -70,6 +144,13 @@ function updateCityList() {
     const li = document.createElement('li');
     li.innerHTML = `
       <span style="flex:1">${city.name} (Priority ${city.priority})</span>
+      <select onchange="updatePriority(${city.id}, this.value)" value="${city.priority}">
+        ${[1, 2, 3, 4, 5].map(p => `
+          <option value="${p}" ${city.priority === p ? 'selected' : ''}>
+            Priority ${p}${p === 1 ? ' (Highest)' : p === 5 ? ' (Lowest)' : ''}
+          </option>
+        `).join('')}
+      </select>
       <input type="text" value="${city.name}" onchange="editCity(${city.id}, this.value)" />
       <button onclick="deleteCity(${city.id})">🗑</button>`;
     list.appendChild(li);
@@ -77,10 +158,23 @@ function updateCityList() {
   updateStartingCityOptions();
 }
 
+function updatePriority(id, newPriority) {
+  const city = cities.find(c => c.id === id);
+  if (city) {
+    city.priority = parseInt(newPriority);
+    updateCityList();
+    drawMarkers(); // Redraw markers to update tooltips
+    if (cities.length >= 2) {
+      findRoute();
+      compareAll(); // Always show comparison
+    }
+  }
+}
+
 function updateStartingCityOptions() {
   const startingSelect = document.getElementById('starting-city-select');
+  const currentValue = startingSelect.value;  // Store current selection
   startingSelect.innerHTML = '<option value="">--None--</option>';
-  // Sort cities by priority for the dropdown.
   const sortedCities = [...cities].sort((a, b) => a.priority - b.priority);
   sortedCities.forEach((city) => {
     const op = document.createElement("option");
@@ -88,6 +182,17 @@ function updateStartingCityOptions() {
     op.text = `${city.name} (Priority ${city.priority})`;
     startingSelect.appendChild(op);
   });
+  // Restore previous selection if city still exists
+  if (currentValue && cities.some(c => c.id.toString() === currentValue)) {
+    startingSelect.value = currentValue;
+  }
+}
+
+function startingCityChanged() {
+  if (cities.length >= 2) {
+    findRoute();
+    compareAll();  // Always update comparison table
+  }
 }
 
 function editCity(id, newName) {
@@ -103,6 +208,10 @@ function editCity(id, newName) {
           city.lon = parseFloat(lon);
           updateCityList();
           drawMarkers();
+          if (cities.length >= 2) {
+            findRoute();
+            compareAll();  // Always update comparison table
+          }
         }
       } else {
         alert('City not found.');
@@ -114,173 +223,240 @@ function deleteCity(id) {
   cities = cities.filter(city => city.id !== id);
   updateCityList();
   drawMarkers();
+  if (cities.length >= 2) {
+    findRoute();
+    compareAll();  // Always update comparison table
+  } else {
+    // Clear route and stats if less than 2 cities
+    document.getElementById('route-output').innerText = "";
+    document.getElementById('stats-output').innerText = "";
+    if (routeLine) {
+      map.removeLayer(routeLine);
+      routeLine = null;
+    }
+    clearDistanceLabels();
+    // Clear comparison table but keep it visible
+    document.getElementById('comparison-table').innerHTML = "";
+  }
 }
 
-function drawMarkers() {
-  // Remove any existing markers from the map.
+function clearDistanceLabels() {
+  distanceLabels.forEach(label => map.removeLayer(label));
+  distanceLabels = [];
+}
+
+function drawMarkers(algorithmStartingCity = null) {
+  // Remove existing markers and distance labels
   markers.forEach(m => map.removeLayer(m));
   markers = [];
+  clearDistanceLabels();
 
   let selectedStartingId = document.getElementById('starting-city-select').value;
-  if (selectedStartingId !== "") {
-    selectedStartingId = parseInt(selectedStartingId);
-  }
+  selectedStartingId = selectedStartingId !== "" ? parseInt(selectedStartingId) : null;
 
   cities.forEach(city => {
-    const iconToUse = (selectedStartingId !== undefined && selectedStartingId === city.id)
-      ? startingIcon : defaultIcon;
+    let iconToUse = defaultIcon;
+    let isStarting = false;
+
+    // Use red marker for user-selected starting city
+    if (selectedStartingId !== null && selectedStartingId === city.id) {
+      iconToUse = startingIcon;
+      isStarting = true;
+    }
+    // Use red marker for algorithm-selected starting city if no user selection
+    else if (selectedStartingId === null && algorithmStartingCity &&
+      city.id === algorithmStartingCity.id) {
+      iconToUse = startingIcon;
+      isStarting = true;
+    }
+
     const marker = L.marker([city.lat, city.lon], { icon: iconToUse }).addTo(map);
-    marker.bindPopup(`${city.name} (Priority ${city.priority})`);
+
+    // Add tooltip with city name, priority, and starting status
+    const tooltipContent = `${city.name}<br>Priority: ${city.priority}${isStarting ? '<br><strong>Starting City</strong>' : ''}`;
+    marker.bindTooltip(tooltipContent, {
+      permanent: false,
+      direction: 'top'
+    });
+
     markers.push(marker);
   });
 }
 
-function findRoute() {
-  // Sort cities by priority.
-  let orderedCities = [...cities].sort((a, b) => a.priority - b.priority);
+function drawRoute(route) {
+  // Remove existing route and distance labels
+  if (routeLine) {
+    map.removeLayer(routeLine);
+  }
+  clearDistanceLabels();
 
-  if (orderedCities.length < 2) {
+  // Draw new route line
+  const routeCoords = route.map(city => [city.lat, city.lon]);
+  routeLine = L.polyline(routeCoords, { color: 'blue', weight: 3 }).addTo(map);
+
+  // Add distance labels between consecutive cities
+  for (let i = 0; i < route.length - 1; i++) {
+    const city1 = route[i];
+    const city2 = route[i + 1];
+    const distance = getDistance(city1, city2).toFixed(2);
+
+    // Calculate midpoint for label placement
+    const midLat = (city1.lat + city2.lat) / 2;
+    const midLon = (city1.lon + city2.lon) / 2;
+
+    const label = L.marker([midLat, midLon], {
+      icon: L.divIcon({
+        className: 'distance-label',
+        html: `${distance} km`
+      })
+    }).addTo(map);
+
+    distanceLabels.push(label);
+  }
+
+  // Fit map bounds to show the entire route
+  map.fitBounds(routeLine.getBounds());
+}
+
+async function findRoute() {
+  if (cities.length < 2) {
     alert('Add at least two cities.');
     return;
   }
-  
-  // If a starting city is chosen, reorder the array so that it comes first.
+
   const startingId = document.getElementById('starting-city-select').value;
-  if (startingId !== "") {
-    const startingCityId = parseInt(startingId);
-    const index = orderedCities.findIndex(city => city.id === startingCityId);
-    if (index !== -1) {
-      const [startingCity] = orderedCities.splice(index, 1);
-      orderedCities.unshift(startingCity);
+  const algorithm = document.getElementById('algorithm-select').value;
+
+  try {
+    const response = await fetch(`${API_URL}/route`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        cities: cities,
+        algorithm: algorithm,
+        starting_city_id: startingId !== "" ? parseInt(startingId) : null
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.error) {
+      alert('Error: ' + data.error);
+      return;
     }
-  }
-  
-  const startTime = performance.now();
-  const { route, distance } = runAlgorithm(document.getElementById('algorithm-select').value, orderedCities);
-  const timeTaken = (performance.now() - startTime).toFixed(2);
 
-  // Create a detailed route string with intercity distances.
-  const detailedRoute = route.map((c, i) => {
-    if (i < route.length - 1) {
-      const d = getDistance(c, route[i + 1]).toFixed(2);
-      return `${c.name} → (${d} km) → `;
-    } else {
-      return c.name;
-    }
-  }).join('');
+    const { route, distance, time, starting_city } = data;
 
-  document.getElementById('route-output').innerText = detailedRoute;
-  document.getElementById('stats-output').innerText = `Total Distance: ${distance.toFixed(2)} km | Time Taken: ${timeTaken} ms`;
-
-  // Display the selected route on the map.
-  drawRoute(route);
-  drawMarkers(); // Refresh the markers (this will no longer remove the drawn route).
-}
-
-function compareAll() {
-  // Use the same sorted order for comparing algorithms.
-  const orderedCitiesOriginal = [...cities].sort((a, b) => a.priority - b.priority);
-  const table = document.getElementById('comparison-table');
-  table.innerHTML = '';
-
-  ['brute', 'dp', 'greedy'].forEach(algo => {
-    let orderedCities = [...orderedCitiesOriginal];
-    const startingId = document.getElementById('starting-city-select').value;
-    if (startingId !== "") {
-      const startingCityId = parseInt(startingId);
-      const index = orderedCities.findIndex(city => city.id === startingCityId);
-      if (index !== -1) {
-        const [startingCity] = orderedCities.splice(index, 1);
-        orderedCities.unshift(startingCity);
+    // Create detailed route string
+    const detailedRoute = route.map((c, i) => {
+      if (i < route.length - 1) {
+        const d = getDistance(c, route[i + 1]).toFixed(2);
+        return `${c.name} → (${d} km) → `;
       }
+      return c.name;
+    }).join('');
+
+    document.getElementById('route-output').innerText = detailedRoute;
+    document.getElementById('stats-output').innerText =
+      `Total Distance: ${distance.toFixed(2)} km | Time Taken: ${time?.toFixed(2) || 'N/A'} ms`;
+
+    drawRoute(route);
+    // Pass the algorithm-selected starting city if no user selection
+    drawMarkers(startingId === "" ? starting_city : null);
+  } catch (error) {
+    alert('Error connecting to the server. Please make sure the backend is running.');
+  }
+}
+
+async function compareAll() {
+  if (cities.length < 2) {
+    alert('Add at least two cities.');
+    return;
+  }
+
+  const startingId = document.getElementById('starting-city-select').value;
+  const comparisonSection = document.getElementById('comparison-section');
+
+  try {
+    const response = await fetch(`${API_URL}/compare`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        cities: cities,
+        starting_city_id: startingId !== "" ? parseInt(startingId) : null
+      })
+    });
+
+    const results = await response.json();
+
+    if (results.error) {
+      alert('Error: ' + results.error);
+      return;
     }
-    const start = performance.now();
-    const { route, distance } = runAlgorithm(algo, orderedCities);
-    const timeTaken = (performance.now() - start).toFixed(2);
 
-    const row = `<tr>
-      <td>${algo.toUpperCase()}</td>
-      <td>${route.map(c => c.name).join(' → ')}</td>
-      <td>${distance.toFixed(2)} km</td>
-      <td>${timeTaken}</td>
-    </tr>`;
-    table.innerHTML += row;
-  });
-}
+    // Always show the comparison section
+    comparisonSection.style.display = 'block';
 
-function runAlgorithm(type, cities) {
-  switch (type) {
-    case 'brute': return bruteForce(cities);
-    case 'dp': return dynamicProgramming(cities);
-    case 'greedy': return nearestNeighbour(cities);
-    default: return { route: [], distance: 0 };
+    const table = document.getElementById('comparison-table');
+    table.innerHTML = '';
+
+    results.forEach(result => {
+      const row = `<tr>
+        <td>${result.algorithm}</td>
+        <td>${result.route.map(c => c.name).join(' → ')}</td>
+        <td>${result.distance.toFixed(2)} km</td>
+        <td>${result.time?.toFixed(2) || 'N/A'} ms</td>
+        <td>${timeComplexity[result.algorithm.toLowerCase()]}</td>
+      </tr>`;
+      table.innerHTML += row;
+    });
+
+    // Show the route for the currently selected algorithm
+    const currentAlgorithm = document.getElementById('algorithm-select').value.toUpperCase();
+    const selectedResult = results.find(r => r.algorithm === currentAlgorithm);
+    if (selectedResult) {
+      drawRoute(selectedResult.route);
+      // Pass the algorithm-selected starting city if no user selection
+      drawMarkers(startingId === "" ? selectedResult.starting_city : null);
+    }
+  } catch (error) {
+    alert('Error connecting to the server. Please make sure the backend is running.');
   }
-}
-
-function bruteForce(cities) {
-  return { route: cities, distance: computeDistance(cities) };
-}
-
-function dynamicProgramming(cities) {
-  return { route: cities, distance: computeDistance(cities) };
-}
-
-function nearestNeighbour(cities) {
-  const visited = [cities[0]];
-  const unvisited = cities.slice(1);
-  let current = cities[0];
-
-  while (unvisited.length > 0) {
-    let nearest = unvisited.reduce((closest, city) => {
-      return getDistance(current, city) < getDistance(current, closest) ? city : closest;
-    }, unvisited[0]);
-
-    visited.push(nearest);
-    unvisited.splice(unvisited.indexOf(nearest), 1);
-    current = nearest;
-  }
-  return { route: visited, distance: computeDistance(visited) };
-}
-
-function computeDistance(route) {
-  let dist = 0;
-  for (let i = 0; i < route.length - 1; i++) {
-    dist += getDistance(route[i], route[i + 1]);
-  }
-  return dist;
 }
 
 function getDistance(a, b) {
-  const R = 6371;
+  const R = 6371; // Earth's radius in km
   const dLat = (b.lat - a.lat) * Math.PI / 180;
   const dLon = (b.lon - a.lon) * Math.PI / 180;
   const lat1 = a.lat * Math.PI / 180;
   const lat2 = b.lat * Math.PI / 180;
   const a2 = Math.sin(dLat / 2) ** 2 +
-             Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+    Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
   return R * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
 }
 
-function drawRoute(route) {
-  if (routeLine) {
-    map.removeLayer(routeLine);
-  }
-  const latlngs = route.map(c => [c.lat, c.lon]);
-  routeLine = L.polyline(latlngs, { color: 'blue' }).addTo(map);
-  map.fitBounds(routeLine.getBounds());
-}
-
 function resetAll() {
-  // Clear the cities array and reset the id counter.
   cities = [];
   nextCityId = 0;
   updateCityList();
-  drawMarkers();
-  document.getElementById('route-output').innerText = "";
-  document.getElementById('stats-output').innerText = "";
-  document.getElementById('comparison-table').innerHTML = "";
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  clearDistanceLabels();
   if (routeLine) {
     map.removeLayer(routeLine);
     routeLine = null;
   }
+  document.getElementById('route-output').innerText = "";
+  document.getElementById('stats-output').innerText = "";
+  document.getElementById('comparison-table').innerHTML = "";
+  document.getElementById('city-input').value = "";
+  document.getElementById('priority-select').value = "1";
+  document.getElementById('algorithm-select').value = "brute";
+
+  // Clear comparison table but keep it visible
+  document.getElementById('comparison-section').style.display = 'block';
 }
