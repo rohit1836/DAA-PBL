@@ -1,18 +1,25 @@
-let cities = [];
-let nextCityId = 0;
-let map, markers = [], routeLine, distanceLabels = [];
+/**
+ * Priority-Based Flight Route Optimizer - Frontend Script
+ * This script handles the interactive map interface, city management,
+ * route calculations, and visualization of the Priority-Based TSP solution.
+ */
 
-// Use relative path for API endpoints since we're serving from the same server
+// Global state variables
+let cities = [];  // Array to store all cities with their properties
+let nextCityId = 0;  // Counter for generating unique city IDs
+let map, markers = [], routeLine, distanceLabels = [];  // Map-related variables
+
+// API endpoint configuration
 const API_URL = '/api';
 
-// Time complexity mapping
+// Time complexity mapping for different algorithms
 const timeComplexity = {
   'brute': 'O(n!)',
   'dp': 'O(n²2ⁿ)',
   'greedy': 'O(n²)'
 };
 
-// Define default (blue), starting (red), and current (green) marker icons
+// Map marker icon configurations
 const defaultIcon = L.icon({
   iconUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png',
   shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
@@ -33,7 +40,7 @@ const startingIcon = L.icon({
 
 // Initialize everything when the DOM is ready
 document.addEventListener('DOMContentLoaded', function () {
-  // Initialize map
+  // Initialize map with multiple tile layer options
   map = L.map('map').setView([20.5937, 78.9629], 5);
   let osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -45,17 +52,16 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   googleStreets.addTo(map);
 
+  // Set up layer controls
   let baseMaps = {
     "OpenStreetMap": osm,
     "Google Streets": googleStreets
   };
 
-  let overlayMaps = {
-  };
-
+  let overlayMaps = {};
   L.control.layers(baseMaps, overlayMaps).addTo(map);
 
-  // Set up event listeners
+  // Set up event listeners for user interactions
   document.getElementById('add-city-btn').addEventListener('click', addCity);
   document.getElementById('city-input').addEventListener('keyup', function (event) {
     if (event.key === 'Enter') addCity();
@@ -72,6 +78,10 @@ document.addEventListener('DOMContentLoaded', function () {
   document.getElementById('reset-btn').addEventListener('click', resetAll);
 });
 
+/**
+ * Add a new city to the route optimizer.
+ * Geocodes the city name, adds it to the cities array, and updates the UI.
+ */
 function addCity() {
   const cityInput = document.getElementById('city-input');
   const priority = parseInt(document.getElementById('priority-select').value);
@@ -79,7 +89,7 @@ function addCity() {
   
   if (!cityName) return;
 
-  // Add proper headers and parameters for Nominatim
+  // Geocode city using Nominatim API
   fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1&addressdetails=1`, {
     method: 'GET',
     headers: {
@@ -108,6 +118,7 @@ function addCity() {
         throw new Error('Invalid coordinates received');
       }
       
+      // Add new city to the array
       cities.push({
         id: nextCityId++,
         name: display_name,
@@ -116,6 +127,7 @@ function addCity() {
         priority: priority
       });
       
+      // Update UI
       cityInput.value = '';
       updateCityList();
       drawMarkers();
@@ -123,6 +135,7 @@ function addCity() {
       // Zoom to the newly added city
       map.setView([latitude, longitude], 5);
       
+      // Calculate route if we have enough cities
       if (cities.length >= 2) {
         findRoute();
         compareAll();
@@ -137,6 +150,10 @@ function addCity() {
   });
 }
 
+/**
+ * Update the displayed list of cities and their priorities.
+ * Also updates the starting city selection dropdown.
+ */
 function updateCityList() {
   const list = document.getElementById('city-list');
   list.innerHTML = '';
@@ -158,6 +175,11 @@ function updateCityList() {
   updateStartingCityOptions();
 }
 
+/**
+ * Update a city's priority and recalculate routes.
+ * @param {number} id - City ID
+ * @param {string} newPriority - New priority value (1-5)
+ */
 function updatePriority(id, newPriority) {
   const city = cities.find(c => c.id === id);
   if (city) {
@@ -171,6 +193,10 @@ function updatePriority(id, newPriority) {
   }
 }
 
+/**
+ * Update the starting city selection dropdown.
+ * Cities are sorted by priority for easier selection.
+ */
 function updateStartingCityOptions() {
   const startingSelect = document.getElementById('starting-city-select');
   const currentValue = startingSelect.value;  // Store current selection
@@ -188,13 +214,22 @@ function updateStartingCityOptions() {
   }
 }
 
+/**
+ * Handle starting city selection change.
+ * Recalculates routes when starting city is changed.
+ */
 function startingCityChanged() {
   if (cities.length >= 2) {
     findRoute();
-    compareAll();  // Always update comparison table
+    compareAll();
   }
 }
 
+/**
+ * Edit a city's name and update its coordinates.
+ * @param {number} id - City ID
+ * @param {string} newName - New city name to geocode
+ */
 function editCity(id, newName) {
   fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${newName}`)
     .then(res => res.json())
@@ -210,7 +245,7 @@ function editCity(id, newName) {
           drawMarkers();
           if (cities.length >= 2) {
             findRoute();
-            compareAll();  // Always update comparison table
+            compareAll();
           }
         }
       } else {
@@ -219,13 +254,17 @@ function editCity(id, newName) {
     });
 }
 
+/**
+ * Delete a city and update routes.
+ * @param {number} id - City ID to delete
+ */
 function deleteCity(id) {
   cities = cities.filter(city => city.id !== id);
   updateCityList();
   drawMarkers();
   if (cities.length >= 2) {
     findRoute();
-    compareAll();  // Always update comparison table
+    compareAll();
   } else {
     // Clear route and stats if less than 2 cities
     document.getElementById('route-output').innerText = "";
@@ -240,11 +279,18 @@ function deleteCity(id) {
   }
 }
 
+/**
+ * Clear all distance labels from the map.
+ */
 function clearDistanceLabels() {
   distanceLabels.forEach(label => map.removeLayer(label));
   distanceLabels = [];
 }
 
+/**
+ * Draw or update city markers on the map.
+ * @param {Object} algorithmStartingCity - City selected as start by algorithm
+ */
 function drawMarkers(algorithmStartingCity = null) {
   // Remove existing markers and distance labels
   markers.forEach(m => map.removeLayer(m));
@@ -283,6 +329,10 @@ function drawMarkers(algorithmStartingCity = null) {
   });
 }
 
+/**
+ * Draw the calculated route on the map.
+ * @param {Array} route - Array of cities in route order
+ */
 function drawRoute(route) {
   // Remove existing route and distance labels
   if (routeLine) {
@@ -318,12 +368,15 @@ function drawRoute(route) {
   map.fitBounds(routeLine.getBounds());
 }
 
+/**
+ * Calculate and display route using selected algorithm.
+ */
 async function findRoute() {
   if (cities.length < 2) {
     alert('Add at least two cities.');
     return;
   }
-
+  
   const startingId = document.getElementById('starting-city-select').value;
   const algorithm = document.getElementById('algorithm-select').value;
 
@@ -349,7 +402,7 @@ async function findRoute() {
 
     const { route, distance, time, starting_city } = data;
 
-    // Create detailed route string
+    // Create detailed route string with distances
     const detailedRoute = route.map((c, i) => {
       if (i < route.length - 1) {
         const d = getDistance(c, route[i + 1]).toFixed(2);
@@ -370,6 +423,9 @@ async function findRoute() {
   }
 }
 
+/**
+ * Compare all available algorithms and display results.
+ */
 async function compareAll() {
   if (cities.length < 2) {
     alert('Add at least two cities.');
@@ -428,6 +484,12 @@ async function compareAll() {
   }
 }
 
+/**
+ * Calculate great circle distance between two cities.
+ * @param {Object} a - First city with lat/lon
+ * @param {Object} b - Second city with lat/lon
+ * @returns {number} Distance in kilometers
+ */
 function getDistance(a, b) {
   const R = 6371; // Earth's radius in km
   const dLat = (b.lat - a.lat) * Math.PI / 180;
@@ -435,10 +497,13 @@ function getDistance(a, b) {
   const lat1 = a.lat * Math.PI / 180;
   const lat2 = b.lat * Math.PI / 180;
   const a2 = Math.sin(dLat / 2) ** 2 +
-    Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+             Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
   return R * 2 * Math.atan2(Math.sqrt(a2), Math.sqrt(1 - a2));
 }
 
+/**
+ * Reset the application to its initial state.
+ */
 function resetAll() {
   cities = [];
   nextCityId = 0;

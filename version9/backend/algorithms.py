@@ -1,9 +1,25 @@
+"""
+Priority-Based Flight Route Optimizer - Algorithm Implementations
+This module contains the core algorithms for solving the Priority-Based Traveling Salesman Problem.
+Each algorithm considers both distance and priority constraints when finding routes.
+"""
+
 import numpy as np
 from math import radians, sin, cos, sqrt, atan2
 import time
 
 def haversine_distance(city1, city2):
-    """Calculate the great circle distance between two cities using Haversine formula."""
+    """
+    Calculate the great circle distance between two cities using the Haversine formula.
+    This gives the shortest distance over the earth's surface between two points.
+    
+    Args:
+        city1 (dict): First city with 'lat' and 'lon' keys
+        city2 (dict): Second city with 'lat' and 'lon' keys
+    
+    Returns:
+        float: Distance in kilometers between the two cities
+    """
     R = 6371  # Earth's radius in kilometers
 
     lat1, lon1 = radians(city1['lat']), radians(city1['lon'])
@@ -17,7 +33,15 @@ def haversine_distance(city1, city2):
     return R * c
 
 def create_distance_matrix(cities):
-    """Create a distance matrix for the cities."""
+    """
+    Create a distance matrix for all cities using haversine distance.
+    
+    Args:
+        cities (list): List of city dictionaries with 'lat' and 'lon' keys
+    
+    Returns:
+        numpy.ndarray: Matrix of distances between all pairs of cities
+    """
     n = len(cities)
     matrix = np.zeros((n, n))
     for i in range(n):
@@ -27,13 +51,37 @@ def create_distance_matrix(cities):
     return matrix
 
 def get_priority_penalty(from_priority, to_priority):
-    """Calculate penalty for traveling between cities of different priorities."""
+    """
+    Calculate penalty for traveling between cities of different priorities.
+    Penalty is applied when moving from higher priority (lower number) to lower priority (higher number).
+    
+    Args:
+        from_priority (int): Priority of the source city (1-5)
+        to_priority (int): Priority of the destination city (1-5)
+    
+    Returns:
+        float: Penalty value (0 if moving to same/higher priority, large value otherwise)
+    """
     if from_priority <= to_priority:
         return 0
     return (from_priority - to_priority) * 1000  # Large penalty for violating priority
 
 def brute_force_tsp(cities, distance_matrix, start_idx=None):
-    """Solve TSP using brute force approach with priority constraints."""
+    """
+    Solve TSP using brute force approach with priority constraints.
+    Generates all possible permutations and finds the one with minimum cost.
+    
+    Args:
+        cities (list): List of city dictionaries
+        distance_matrix (numpy.ndarray): Pre-calculated distance matrix
+        start_idx (int, optional): Index of starting city. If None, highest priority city is chosen
+    
+    Returns:
+        tuple: (optimal route, total cost, execution time)
+    
+    Time Complexity: O(n!)
+    Space Complexity: O(n)
+    """
     start_time = time.time()
     n = len(cities)
     
@@ -42,6 +90,7 @@ def brute_force_tsp(cities, distance_matrix, start_idx=None):
         start_idx = min(range(n), key=lambda i: cities[i]['priority'])
 
     def permutation_cost(perm):
+        """Calculate total cost (distance + priority penalties) for a given permutation"""
         if perm[0] != start_idx:
             return float('inf')
         
@@ -66,6 +115,7 @@ def brute_force_tsp(cities, distance_matrix, start_idx=None):
     best_path = None
     
     def generate_permutations(arr, start):
+        """Recursively generate all possible permutations"""
         if start == len(arr):
             nonlocal min_cost, best_path
             cost = permutation_cost(arr)
@@ -76,7 +126,7 @@ def brute_force_tsp(cities, distance_matrix, start_idx=None):
             for i in range(start, len(arr)):
                 arr[start], arr[i] = arr[i], arr[start]
                 generate_permutations(arr, start + 1)
-                arr[start], arr[i] = arr[i], arr[start]
+                arr[start], arr[i] = arr[i], arr[start]  # backtrack
     
     generate_permutations(indices, 0)
     
@@ -88,7 +138,21 @@ def brute_force_tsp(cities, distance_matrix, start_idx=None):
     return route, min_cost, time.time() - start_time
 
 def dp_tsp(cities, distance_matrix, start_idx=None):
-    """Solve TSP using dynamic programming with priority constraints."""
+    """
+    Solve TSP using dynamic programming with bitmask and priority constraints.
+    Uses memoization to avoid recalculating subproblems.
+    
+    Args:
+        cities (list): List of city dictionaries
+        distance_matrix (numpy.ndarray): Pre-calculated distance matrix
+        start_idx (int, optional): Index of starting city. If None, highest priority city is chosen
+    
+    Returns:
+        tuple: (optimal route, total cost, execution time)
+    
+    Time Complexity: O(n²2ⁿ)
+    Space Complexity: O(n2ⁿ)
+    """
     start_time = time.time()
     n = len(cities)
     
@@ -100,6 +164,16 @@ def dp_tsp(cities, distance_matrix, start_idx=None):
     dp = {}
     
     def solve(pos, mask):
+        """
+        Recursive function to solve TSP using dynamic programming
+        
+        Args:
+            pos (int): Current city index
+            mask (int): Bitmask representing visited cities
+        
+        Returns:
+            tuple: (minimum cost, path)
+        """
         if mask == (1 << n) - 1:  # All cities visited
             return distance_matrix[pos][start_idx], [start_idx]
         
@@ -138,7 +212,21 @@ def dp_tsp(cities, distance_matrix, start_idx=None):
     return route, total_cost, time.time() - start_time
 
 def greedy_tsp(cities, distance_matrix, start_idx=None):
-    """Solve TSP using greedy (nearest neighbor) approach with priority constraints."""
+    """
+    Solve TSP using greedy (nearest neighbor) approach with priority constraints.
+    Always selects the nearest unvisited city that minimizes distance + priority penalty.
+    
+    Args:
+        cities (list): List of city dictionaries
+        distance_matrix (numpy.ndarray): Pre-calculated distance matrix
+        start_idx (int, optional): Index of starting city. If None, highest priority city is chosen
+    
+    Returns:
+        tuple: (route, total cost, execution time)
+    
+    Time Complexity: O(n²)
+    Space Complexity: O(n)
+    """
     start_time = time.time()
     n = len(cities)
     
